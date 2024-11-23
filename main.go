@@ -7,11 +7,9 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
 )
 
@@ -27,6 +25,21 @@ type Client_Secret struct {
 	} `json:"installed"`
 }
 
+type Refresh_Token struct {
+	RefreshToken string `json:"refreshToken"`
+	Expiry       string `json:"expiry"`
+}
+
+type Refresh_File struct {
+	Tokens []Refresh_Token `json:"tokens"`
+}
+
+func check(e error) {
+	if e != nil {
+		log.Fatal(e)
+	}
+}
+
 func main() {
 
 	jsonData, err := os.ReadFile("client_secret.json")
@@ -36,9 +49,9 @@ func main() {
 
 	var client_secret Client_Secret
 	err = json.Unmarshal(jsonData, &client_secret)
-	if err != nil {
-		panic(err)
-	}
+	check(err)
+
+	token, validToken := GetRefresh()
 
 	ctx := context.Background()
 	var conf = &oauth2.Config{
@@ -49,57 +62,44 @@ func main() {
 		RedirectURL:  "http://localhost:8080/",
 	}
 
-	// use PKCE to protect against CSRF attacks
-	// https://www.ietf.org/archive/id/draft-ietf-oauth-security-topics-22.html#name-countermeasures-6
-	verifier := oauth2.GenerateVerifier()
-
-	// Redirect user to consent page to ask for permission
-	// for the scopes specified above.
-	url := conf.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
-	fmt.Printf("Visit the URL for the auth dialog: %v", url)
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		code := r.URL.Query().Get("code")
-		if code != "" {
-			tok, err := conf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			client := conf.Client(ctx, tok)
-
-			youtubeService, err := youtube.NewService(ctx, option.WithHTTPClient(client))
-			if err != nil {
-				log.Fatal(err)
-			}
-			playListsCall := youtubeService.Playlists.List([]string{"id", "snippet", "contentDetails"}).Mine(true)
-			playListsResp, err := playListsCall.Do()
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println("Playlists:")
-			for index, playlist := range playListsResp.Items {
-				fmt.Printf("[%d] Title: %v, ID: %v\n", index, playlist.Snippet.Title, playlist.Id)
-			}
-
-			fmt.Println("Select a playlist:")
-			var playListIndex int
-			fmt.Scanln(&playListIndex)
-			playlist := playListsResp.Items[playListIndex]
-			// TODO: Error Handling
-			fmt.Println("Selected playlist: ", playlist.Id)
-
-			cmd := exec.Command("yt-dlp", "-o", "~/dev/go-spotify-proj/music/%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s", playlist.Id)
-
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println(string(output))
+	//Use Refresh Token instead of re-authenticating
+	if validToken {
+		client := conf.Client(ctx, &token)
+		result := Download(client, ctx)
+		if result {
+			fmt.Println("Download Completed!")
+		} else {
+			fmt.Println("Download Failed :(")
 		}
+	} else {
+		// Redirect user to consent page to ask for permission
+		// for the scopes specified above.
+		verifier := oauth2.GenerateVerifier()
+		url := conf.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
+		fmt.Printf("Visit the URL for the auth dialog: %v", url)
 
-	})
-	log.Fatal(http.ListenAndServe(":8080", nil))
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			code := r.URL.Query().Get("code")
+
+			if code != "" {
+				tok, err := conf.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+				check(err)
+				tokenJSON, err := json.Marshal(tok)
+				check(err)
+				os.WriteFile(".refresh.json", tokenJSON, 0666)
+				fmt.Printf("%s\n", tokenJSON)
+				client := conf.Client(ctx, tok)
+				result := Download(client, ctx)
+				if result {
+					fmt.Println("Download Completed!")
+				} else {
+					fmt.Println("Download Failed :(")
+				}
+				os.Exit(0)
+			}
+
+		})
+		log.Fatal(http.ListenAndServe(":8080", nil))
+	}
+
 }
-
-// yt-dl -o '%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s'

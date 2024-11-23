@@ -1,2 +1,3 @@
-client_secret.json
+*.json
 music/
+go-spotify-proj

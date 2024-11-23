@@ -3,7 +3,6 @@ module github.com/maxgonick/go-spotify-proj
 go 1.22.3
 
 require (
-	golang.org/x/net v0.31.0
 	golang.org/x/oauth2 v0.24.0
 	google.golang.org/api v0.209.0
 )
@@ -26,6 +25,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.29.0 // indirect
 	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	golang.org/x/crypto v0.29.0 // indirect
+	golang.org/x/net v0.31.0 // indirect
 	golang.org/x/sys v0.27.0 // indirect
 	golang.org/x/text v0.20.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241113202542-65e8d215514f // indirect
